@@ -1,0 +1,28 @@
+# Requirements for Safe Security Analyzer and Extractor Tools
+# 
+# These Python scripts provide programmatic access to Safe multisig
+# security analysis and address extraction across multiple blockchains.
+#
+# Usage:
+#   pip install -r requirements.txt
+#   python3 safe_analyzer.py --address 0x... --chain ethereum
+#   python3 safe_extractor.py --chain arbitrum --min-value 10000
+
+# Core dependency for HTTP requests to blockchain RPCs and explorer APIs
+requests>=2.25.0
+
+# Optional: Enhanced HTTP client with better performance for batch operations
+# Uncomment the line below if you need better performance for large batch jobs
+# httpx>=0.24.0
+
+# Development dependencies (optional, for script development and testing)
+# Uncomment the section below if you're modifying the scripts
+#
+# # Code formatting and linting
+# black>=22.0.0
+# flake8>=4.0.0
+# mypy>=0.950
+#
+# # Testing (if you want to extend the test suite)
+# pytest>=7.0.0
+# pytest-asyncio>=0.20.0
