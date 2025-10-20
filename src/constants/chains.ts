@@ -31,6 +31,7 @@ export interface ChainConfig {
   name: string;
   viemChain: typeof mainnet | typeof base | typeof arbitrum | typeof optimism | typeof polygon | typeof katana;
   rpcUrl: string;
+  backupRpcUrl: string;
   explorerApiUrl: string;
   explorerUrl: string;
 }
@@ -49,7 +50,8 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     id: 1,
     name: 'Ethereum',
     viemChain: mainnet,
-    rpcUrl: 'https://eth.drpc.org',
+    rpcUrl: 'https://eth.meowrpc.com',
+    backupRpcUrl: 'https://eth.drpc.org',
     explorerApiUrl: 'https://api.etherscan.io/v2/api',
     explorerUrl: 'https://etherscan.io'
   },
@@ -57,7 +59,8 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     id: 8453,
     name: 'Base',
     viemChain: base,
-    rpcUrl: 'https://base.drpc.org',
+    rpcUrl: 'https://base.meowrpc.com',
+    backupRpcUrl: 'https://base.drpc.org',
     explorerApiUrl: 'https://api.etherscan.io/v2/api',
     explorerUrl: 'https://basescan.org'
   },
@@ -66,6 +69,7 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     name: 'Arbitrum',
     viemChain: arbitrum,
     rpcUrl: 'https://arbitrum.drpc.org',
+    backupRpcUrl: 'https://arb1.arbitrum.io/rpc',
     explorerApiUrl: 'https://api.etherscan.io/v2/api',
     explorerUrl: 'https://arbiscan.io'
   },
@@ -74,6 +78,7 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     name: 'Optimism',
     viemChain: optimism,
     rpcUrl: 'https://optimism.drpc.org',
+    backupRpcUrl: 'https://mainnet.optimism.io',
     explorerApiUrl: 'https://api.etherscan.io/v2/api',
     explorerUrl: 'https://optimistic.etherscan.io'
   },
@@ -82,6 +87,7 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     name: 'Polygon',
     viemChain: polygon,
     rpcUrl: 'https://polygon.drpc.org',
+    backupRpcUrl: 'https://polygon-rpc.com',
     explorerApiUrl: 'https://api.etherscan.io/v2/api',
     explorerUrl: 'https://polygonscan.com'
   },
@@ -89,7 +95,8 @@ export const SUPPORTED_CHAINS: ChainConfig[] = [
     id: 747474,
     name: 'Katana',
     viemChain: katana,
-    rpcUrl: 'https://katana.drpc.org',
+    rpcUrl: 'https://rpc.katana.network',
+    backupRpcUrl: 'https://katana.drpc.org',
     explorerApiUrl: 'https://api.etherscan.io/v2/api',
     explorerUrl: 'https://katana-explorer.com'
   }

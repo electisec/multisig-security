@@ -179,12 +179,37 @@ export default function MultisigChecker({ initialChainId, initialAddress, autoAn
   }, [results]);
 
   // Memoize client creation to avoid recreating for same chain
-  const createClient = useCallback((chain: ChainConfig) => {
+  const createClient = useCallback((chain: ChainConfig, useBackup: boolean = false) => {
+    const rpcUrl = useBackup ? chain.backupRpcUrl : chain.rpcUrl;
     return createPublicClient({
       chain: chain.viemChain,
-      transport: http(chain.rpcUrl)
+      transport: http(rpcUrl)
     });
   }, []);
+
+  // Helper function to execute RPC calls with automatic backup fallback
+  const executeWithBackup = async <T>(
+    chain: ChainConfig,
+    operation: (client: ReturnType<typeof createPublicClient>) => Promise<T>
+  ): Promise<T> => {
+    try {
+      const client = createClient(chain);
+      return await operation(client);
+    } catch (primaryError) {
+      try {
+        console.warn(`Primary RPC failed for ${chain.name}, trying backup RPC`);
+        const backupClient = createClient(chain, true);
+        return await operation(backupClient);
+      } catch (backupError) {
+        console.error(`Both primary and backup RPC failed for ${chain.name}:`, primaryError, backupError);
+        // Create a specific error type to distinguish RPC failures from contract issues
+        const rpcError = new Error(`RPC failure: Unable to connect to ${chain.name} network. Both primary and backup RPC endpoints are unavailable.`);
+        (rpcError as any).isRpcFailure = true;
+        (rpcError as any).originalErrors = { primaryError, backupError };
+        throw rpcError;
+      }
+    }
+  };
 
   const validateEthereumAddress = (addr: string): boolean => {
     return isAddress(addr);
@@ -192,8 +217,9 @@ export default function MultisigChecker({ initialChainId, initialAddress, autoAn
 
   const checkContractCode = async (addr: string, chain: ChainConfig): Promise<boolean> => {
     try {
-      const client = createClient(chain);
-      const code = await client.getBytecode({ address: addr as `0x${string}` });
+      const code = await executeWithBackup(chain, async (client) => {
+        return await client.getBytecode({ address: addr as `0x${string}` });
+      });
       return code !== undefined && code !== '0x';
     } catch {
       return false;
@@ -312,8 +338,8 @@ export default function MultisigChecker({ initialChainId, initialAddress, autoAn
 
   const batchGnosisSafeCalls = async (address: string, chain: ChainConfig) => {
     try {
-      const client = createClient(chain);
-      const calls = [
+      const results = await executeWithBackup(chain, async (client) => {
+        const calls = [
         {
           address: address as `0x${string}`,
           abi: GNOSIS_SAFE_ABI,
@@ -342,8 +368,9 @@ export default function MultisigChecker({ initialChainId, initialAddress, autoAn
         },
       ];
 
-      const results = await multicall(client, {
-        contracts: calls,
+        return await multicall(client, {
+          contracts: calls,
+        });
       });
 
       // Process results and handle potential errors
@@ -387,7 +414,13 @@ export default function MultisigChecker({ initialChainId, initialAddress, autoAn
         modules,
       };
     } catch (error) {
-      throw error;
+      // Check if this is an RPC failure rather than a contract issue
+      if (error && (error as any).isRpcFailure) {
+        throw error; // Re-throw RPC failure with the original message
+      }
+      
+      // If not an RPC failure, it might be a contract issue
+      throw new Error('Contract does not appear to be a Safe multisig or network error occurred');
     }
   };
 
@@ -1866,7 +1899,12 @@ export default function MultisigChecker({ initialChainId, initialAddress, autoAn
       });
 
     } catch (err) {
-      setError(`Error analyzing contract: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      // Check if this is an RPC failure
+      if (err && (err as any).isRpcFailure) {
+        setError(err instanceof Error ? err.message : 'RPC failure: Unable to connect to network');
+      } else {
+        setError(`Error analyzing contract: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
     } finally {
       setLoading(false);
     }

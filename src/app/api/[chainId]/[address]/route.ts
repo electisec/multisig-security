@@ -38,12 +38,13 @@ interface ApiResponse {
 }
 
 // Explorer API endpoints for different chains
+// Note: All chains now use the unified Etherscan V2 API as per chain configuration
 const EXPLORER_APIS = {
-  1: 'https://api.etherscan.io/api',
-  8453: 'https://api.basescan.org/api', 
-  42161: 'https://api.arbiscan.io/api',
-  10: 'https://api-optimistic.etherscan.io/api',
-  137: 'https://api.polygonscan.com/api',
+  1: 'https://api.etherscan.io/v2/api',
+  8453: 'https://api.etherscan.io/v2/api', 
+  42161: 'https://api.etherscan.io/v2/api',
+  10: 'https://api.etherscan.io/v2/api',
+  137: 'https://api.etherscan.io/v2/api',
   747474: null // Katana doesn't have explorer API
 };
 
