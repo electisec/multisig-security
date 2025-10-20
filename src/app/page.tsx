@@ -11,8 +11,8 @@ export default function Home() {
             Multisig Security Checker
           </h1>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Analyze your Safe multisig contract to ensure it follows security best practices.
-            Enter an Ethereum address below to get started.
+            Analyze your Safe multisig contract for security best practices.<br/>
+            Enter an address to get started.
           </p>
         </div>
 
@@ -29,6 +29,14 @@ export default function Home() {
             >
               engn33r
             </a>
+            {' '}or create a{' '}
+             <a
+              href="https://github.com/electisec/multisig-security"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 underline">
+                repo PR
+              </a>
           </p>
         </div>
       </div>
