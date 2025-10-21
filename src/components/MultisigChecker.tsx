@@ -8,6 +8,12 @@ import { GNOSIS_SAFE_ABI, OFFICIAL_SAFE_FALLBACK_HANDLERS, SENTINEL_MODULES_ADDR
 import { SUPPORTED_CHAINS, DEFAULT_CHAIN, CHAIN_ID_MAP, CHAIN_EXAMPLES, type ChainConfig } from '../constants/chains';
 import { getTooltipInfo } from '../constants/tooltips';
 
+// Extended Error type for RPC failures
+interface RpcError extends Error {
+  isRpcFailure: boolean;
+  originalErrors: { primaryError: unknown; backupError: unknown };
+}
+
 // Rate limiter for API calls
 
 interface SecurityCheck {
@@ -188,9 +194,10 @@ export default function MultisigChecker({ initialChainId, initialAddress, autoAn
   }, []);
 
   // Helper function to execute RPC calls with automatic backup fallback
-  const executeWithBackup = async <T>(
+  const executeWithBackup = async <T,>(
     chain: ChainConfig,
-    operation: (client: ReturnType<typeof createPublicClient>) => Promise<T>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    operation: (client: any) => Promise<T>
   ): Promise<T> => {
     try {
       const client = createClient(chain);
@@ -203,9 +210,9 @@ export default function MultisigChecker({ initialChainId, initialAddress, autoAn
       } catch (backupError) {
         console.error(`Both primary and backup RPC failed for ${chain.name}:`, primaryError, backupError);
         // Create a specific error type to distinguish RPC failures from contract issues
-        const rpcError = new Error(`RPC failure: Unable to connect to ${chain.name} network. Both primary and backup RPC endpoints are unavailable.`);
-        (rpcError as any).isRpcFailure = true;
-        (rpcError as any).originalErrors = { primaryError, backupError };
+        const rpcError = new Error(`RPC failure: Unable to connect to ${chain.name} network. Both primary and backup RPC endpoints are unavailable.`) as RpcError;
+        rpcError.isRpcFailure = true;
+        rpcError.originalErrors = { primaryError, backupError };
         throw rpcError;
       }
     }
@@ -415,7 +422,7 @@ export default function MultisigChecker({ initialChainId, initialAddress, autoAn
       };
     } catch (error) {
       // Check if this is an RPC failure rather than a contract issue
-      if (error && (error as any).isRpcFailure) {
+      if (error && (error as RpcError).isRpcFailure) {
         throw error; // Re-throw RPC failure with the original message
       }
       
@@ -1900,7 +1907,7 @@ export default function MultisigChecker({ initialChainId, initialAddress, autoAn
 
     } catch (err) {
       // Check if this is an RPC failure
-      if (err && (err as any).isRpcFailure) {
+      if (err && (err as RpcError).isRpcFailure) {
         setError(err instanceof Error ? err.message : 'RPC failure: Unable to connect to network');
       } else {
         setError(`Error analyzing contract: ${err instanceof Error ? err.message : 'Unknown error'}`);
