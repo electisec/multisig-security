@@ -32,7 +32,7 @@ This tool performs the exact same security analysis as the web application:
 
 ### **Core Security Checks**
 1. **Signer Threshold** - Validates signature requirements (≥4 recommended)
-2. **Signer Threshold Percentage** - Ensures proper consensus (≥51% recommended)  
+2. **Signer Threshold Percentage** - Ensures proper consensus (≥51% recommended)
 3. **Safe Version** - Checks for latest Safe contract version
 4. **Contract Creation Date** - Analyzes contract age and establishment
 5. **Multisig Nonce** - Reviews transaction activity and usage
@@ -52,7 +52,7 @@ This tool performs the exact same security analysis as the web application:
 
 Supports the same networks as the web app:
 - **Ethereum** (`--chain ethereum`)
-- **Arbitrum** (`--chain arbitrum`) 
+- **Arbitrum** (`--chain arbitrum`)
 - **Base** (`--chain base`)
 - **Optimism** (`--chain optimism`)
 - **Polygon** (`--chain polygon`)
@@ -180,7 +180,7 @@ def analyze_safe(address, chain="ethereum"):
         "--chain", chain,
         "--output", "json"
     ], capture_output=True, text=True)
-    
+
     return json.loads(result.stdout)
 
 # Use in your application
@@ -205,7 +205,7 @@ print(f"Security Score: {analysis['security_score']['score']}/100")
 ### Speed
 - **Single analysis**: ~5-10 seconds
 - **Batch processing**: ~3-5 seconds per Safe
-- **With API key**: Faster and more reliable
+- **With Etherscan v2 API key**: Faster and more reliable
 
 ### Rate Limits
 - Respects RPC provider limits
@@ -267,15 +267,15 @@ class SafeSecurityChecker:
     def __init__(self, chain="ethereum", api_key=None):
         self.chain = chain
         self.api_key = api_key
-    
+
     def analyze(self, address: str) -> Dict[str, Any]:
         cmd = ["python3", "safe_analyzer.py", "--address", address, "--chain", self.chain, "--output", "json"]
         if self.api_key:
             cmd.extend(["--api-key", self.api_key])
-        
+
         result = subprocess.run(cmd, capture_output=True, text=True)
         return json.loads(result.stdout)
-    
+
     def is_secure(self, address: str, min_score: int = 80) -> bool:
         analysis = self.analyze(address)
         return analysis.get("security_score", {}).get("score", 0) >= min_score

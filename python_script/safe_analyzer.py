@@ -830,7 +830,7 @@ class SafeAnalyzer:
         checks.append(SecurityCheckResult(
             title="Owner Activity Analysis",
             status="success",
-            message=f"All {len(owners)} owners may be used exclusively for multisig signing (analysis requires API key).",
+            message=f"All {len(owners)} owners may be used exclusively for multisig signing (analysis requires Etherscan v2 API key).",
             details={"owners": owners}
         ))
 
@@ -965,7 +965,7 @@ def main():
                        default="ethereum", help="Blockchain network")
     parser.add_argument("--output", choices=["human", "json", "csv"],
                        default="human", help="Output format")
-    parser.add_argument("--api-key", type=str, help="Explorer API key for enhanced data")
+    parser.add_argument("--api-key", type=str, help="Etherscan v2 API key for enhanced data")
     parser.add_argument("--file", type=str, help="Output file path")
 
     args = parser.parse_args()

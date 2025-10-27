@@ -1,0 +1,3 @@
+address,chain,is_safe,version,threshold,owner_count,nonce,module_count,security_score,security_rating,error
+0xcAD001c30E96765aC90307669d578219D4fb1DCe,ethereum,True,1.3.0,4,8,235,0,89,Excellent,
+0xFEB4acf3df3cDEA7399794D0869ef76A6EfAff52,ethereum,True,1.3.0,6,9,2208,0,89,Excellent,
