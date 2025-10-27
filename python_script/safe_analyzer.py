@@ -33,21 +33,24 @@ import re
 SUPPORTED_CHAINS = {
     "ethereum": {
         "name": "Ethereum",
-        "rpc_url": "https://eth.drpc.org",
+        "rpc_url": "https://eth.meowrpc.com",
+        "backup_rpc_url": "https://eth.drpc.org",
         "explorer_api": "https://api.etherscan.io/v2/api",
         "explorer_url": "https://etherscan.io",
         "chain_id": 1
     },
     "arbitrum": {
         "name": "Arbitrum",
-        "rpc_url": "https://arb1.arbitrum.io/rpc",
+        "rpc_url": "https://arbitrum.drpc.org",
+        "backup_rpc_url": "https://arb1.arbitrum.io/rpc",
         "explorer_api": "https://api.etherscan.io/v2/api",
         "explorer_url": "https://arbiscan.io",
         "chain_id": 42161
     },
     "base": {
         "name": "Base",
-        "rpc_url": "https://mainnet.base.org",
+        "rpc_url": "https://base.meowrpc.com",
+        "backup_rpc_url": "https://base.drpc.org",
         "explorer_api": "https://api.etherscan.io/v2/api",
         "explorer_url": "https://basescan.org",
         "chain_id": 8453
@@ -55,6 +58,7 @@ SUPPORTED_CHAINS = {
     "optimism": {
         "name": "Optimism",
         "rpc_url": "https://optimism.drpc.org",
+        "backup_rpc_url": "https://mainnet.optimism.io",
         "explorer_api": "https://api.etherscan.io/v2/api",
         "explorer_url": "https://optimistic.etherscan.io",
         "chain_id": 10
@@ -62,6 +66,7 @@ SUPPORTED_CHAINS = {
     "polygon": {
         "name": "Polygon",
         "rpc_url": "https://polygon.drpc.org",
+        "backup_rpc_url": "https://polygon-rpc.com",
         "explorer_api": "https://api.etherscan.io/v2/api",
         "explorer_url": "https://polygonscan.com",
         "chain_id": 137
@@ -69,6 +74,7 @@ SUPPORTED_CHAINS = {
     "katana": {
         "name": "Katana",
         "rpc_url": "https://katana.drpc.org",
+        "backup_rpc_url": "https://katana.drpc.org",
         "explorer_api": "https://api.etherscan.io/v2/api",
         "explorer_url": "https://katana-explorer.com",
         "chain_id": 747474
@@ -82,7 +88,25 @@ GNOSIS_SAFE_ABI = [
     {"inputs": [], "name": "getOwners", "outputs": [{"type": "address[]"}], "stateMutability": "view", "type": "function"},
     {"inputs": [], "name": "nonce", "outputs": [{"type": "uint256"}], "stateMutability": "view", "type": "function"},
     {"inputs": [{"type": "address"}, {"type": "uint256"}], "name": "getModulesPaginated", "outputs": [{"type": "address[]"}, {"type": "address"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [], "name": "getGuard", "outputs": [{"type": "address"}], "stateMutability": "view", "type": "function"},
+    {"inputs": [], "name": "getFallbackHandler", "outputs": [{"type": "address"}], "stateMutability": "view", "type": "function"},
 ]
+
+# Official Safe fallback handlers
+OFFICIAL_SAFE_FALLBACK_HANDLERS = {
+    '0x017062a1de2fe6b99be3d9d37841fed19f573804': 'CompatibilityFallbackHandler',
+    '0xf48f2b2d2a534e402487b3ee7c18c33aec0fe5e4': 'CompatibilityFallbackHandler 1.3.0',
+    '0xfd0732dc9e303f09fcef3a7388ad10a83459ec99': 'CompatibilityFallbackHandler 1.4.1',
+    '0xd5d82b6addc9027b22dca772aa68d5d74cdbdf44': 'DefaultCallbackHandler',
+    '0x7f6ab15b00e1e8e1d4ff2b25ce0e2e83dd5e24d1': 'TokenCallbackHandler',
+    '0x6ac8d65dc698ae07263e3a98aa698c33060b4a13': 'TokenCallbackHandler',
+    '0x98ffbbf51bb33a056b08ddf711f289936aaff717': 'SignMessageLib',
+    '0xa65387f16b013cf2af4605ad8aa5ec25a2cbda83': 'SignMessageLib',
+    '0x7cbb62eaa69f79e6873cd1ecb2392971036cfaa4': 'CreateCall',
+    '0x9b35af71d77eaf8d7e40252370304687390a1a52': 'CreateCall',
+    '0x59ad6735bcd8152b84860cb256dd9e96b85f69da': 'SimulateTxAccessor',
+    '0x727a77a074d1e6c4530e814f89e618a3298fc044': 'SimulateTxAccessor',
+}
 
 @dataclass
 class SecurityCheckResult:
@@ -109,6 +133,8 @@ class SafeAnalysisResult:
     owners: Optional[List[str]] = None
     nonce: Optional[int] = None
     modules: Optional[List[str]] = None
+    guard: Optional[str] = None
+    fallback_handler: Optional[str] = None
     security_score: Optional[SecurityScore] = None
     checks: Optional[List[SecurityCheckResult]] = None
     error: Optional[str] = None
@@ -118,24 +144,25 @@ class SafeAnalyzer:
     def __init__(self, chain: str, api_key: str = None, timeout: int = 30):
         if chain not in SUPPORTED_CHAINS:
             raise ValueError(f"Unsupported chain: {chain}. Supported: {list(SUPPORTED_CHAINS.keys())}")
-        
+
         self.chain = chain
         self.chain_config = SUPPORTED_CHAINS[chain]
         self.api_key = api_key
         self.timeout = timeout
         self.session = requests.Session()
-        
+
         print(f"🔗 Initialized Safe Analyzer for {self.chain_config['name']}")
-    
+
     def rpc_call(self, method: str, params: list) -> dict:
-        """Make JSON-RPC call to blockchain"""
+        """Make JSON-RPC call to blockchain with backup RPC support"""
         payload = {
             "jsonrpc": "2.0",
             "method": method,
             "params": params,
             "id": 1
         }
-        
+
+        # Try primary RPC first
         try:
             response = self.session.post(
                 self.chain_config["rpc_url"],
@@ -144,22 +171,38 @@ class SafeAnalyzer:
             )
             response.raise_for_status()
             result = response.json()
-            
+
             if "error" in result:
-                return None
+                raise Exception(f"RPC error: {result['error']}")
             return result.get("result")
-        except Exception as e:
-            print(f"RPC call failed: {e}")
-            return None
-    
+        except Exception as primary_error:
+            print(f"Primary RPC failed for {self.chain_config['name']}, trying backup RPC")
+
+            # Try backup RPC
+            try:
+                response = self.session.post(
+                    self.chain_config["backup_rpc_url"],
+                    json=payload,
+                    timeout=self.timeout
+                )
+                response.raise_for_status()
+                result = response.json()
+
+                if "error" in result:
+                    raise Exception(f"RPC error: {result['error']}")
+                return result.get("result")
+            except Exception as backup_error:
+                print(f"Both primary and backup RPC failed for {self.chain_config['name']}: {primary_error}, {backup_error}")
+                return None
+
     def explorer_api_call(self, params: dict) -> dict:
         """Make API call to blockchain explorer"""
         # Add chainid for V2 API
         params["chainid"] = self.chain_config["chain_id"]
-        
+
         if self.api_key:
             params["apikey"] = self.api_key
-        
+
         try:
             response = self.session.get(
                 self.chain_config["explorer_api"],
@@ -171,12 +214,12 @@ class SafeAnalyzer:
         except Exception as e:
             print(f"Explorer API call failed: {e}")
             return {"status": "0", "message": str(e)}
-    
+
     def is_contract(self, address: str) -> bool:
         """Check if address is a contract"""
         code = self.rpc_call("eth_getCode", [address, "latest"])
         return code is not None and code != "0x" and len(code) > 2
-    
+
     def get_safe_data(self, address: str) -> Dict[str, Any]:
         """Get basic Safe contract data using multicall"""
         try:
@@ -184,14 +227,16 @@ class SafeAnalyzer:
             calls = []
             function_sigs = {
                 "VERSION": "0xffa1ad74",
-                "getThreshold": "0xe75235b8", 
+                "getThreshold": "0xe75235b8",
                 "getOwners": "0xa0e67e2b",
                 "nonce": "0xaffed0e0",
-                "getModulesPaginated": "0xcc2f8452000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000a"
+                "getModulesPaginated": "0xcc2f8452000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000a",
+                "getGuard": "0xa2926596",
+                "getFallbackHandler": "0xf08a0323"
             }
-            
+
             results = {}
-            
+
             # Call each function individually (multicall can be complex)
             for func_name, sig in function_sigs.items():
                 if func_name == "getModulesPaginated":
@@ -205,13 +250,13 @@ class SafeAnalyzer:
                         "to": address,
                         "data": sig
                     }, "latest"])
-                
+
                 if result and result != "0x":
                     results[func_name] = result
-            
+
             # Parse results
             safe_data = {}
-            
+
             # Parse VERSION
             if "VERSION" in results:
                 # Remove 0x and decode string
@@ -223,15 +268,15 @@ class SafeAnalyzer:
                     if len(hex_data) >= string_start + string_length:
                         version_hex = hex_data[string_start:string_start + string_length]
                         safe_data["version"] = bytes.fromhex(version_hex).decode('utf-8').strip('\x00')
-            
+
             # Parse threshold
             if "getThreshold" in results:
                 safe_data["threshold"] = int(results["getThreshold"], 16)
-            
+
             # Parse nonce
             if "nonce" in results:
                 safe_data["nonce"] = int(results["nonce"], 16)
-            
+
             # Parse owners (more complex ABI decoding needed)
             if "getOwners" in results:
                 hex_data = results["getOwners"][2:]
@@ -245,7 +290,7 @@ class SafeAnalyzer:
                             owner_hex = hex_data[offset + 24:offset + 64]  # Remove padding
                             owners.append("0x" + owner_hex)
                     safe_data["owners"] = owners
-            
+
             # Parse modules
             if "getModulesPaginated" in results:
                 hex_data = results["getModulesPaginated"][2:]
@@ -263,13 +308,178 @@ class SafeAnalyzer:
                                 if module_addr != "0x0000000000000000000000000000000000000001":  # Skip sentinel
                                     modules.append(module_addr)
                         safe_data["modules"] = modules
-            
+
+            # Parse getGuard
+            if "getGuard" in results:
+                hex_data = results["getGuard"][2:]
+                if hex_data and hex_data != "0" * 64:  # Check if not empty or zero address
+                    guard_addr = "0x" + hex_data[-40:]  # Last 40 chars (20 bytes)
+                    if guard_addr != "0x0000000000000000000000000000000000000000":
+                        safe_data["guard"] = guard_addr
+
+            # Parse getFallbackHandler
+            if "getFallbackHandler" in results:
+                hex_data = results["getFallbackHandler"][2:]
+                if hex_data and hex_data != "0" * 64:  # Check if not empty or zero address
+                    handler_addr = "0x" + hex_data[-40:]  # Last 40 chars (20 bytes)
+                    if handler_addr != "0x0000000000000000000000000000000000000000":
+                        safe_data["fallback_handler"] = handler_addr
+
             return safe_data
-            
+
         except Exception as e:
             print(f"Error getting Safe data: {e}")
             return {}
-    
+
+    def _check_transaction_guard(self, safe_data: dict) -> SecurityCheckResult:
+        """Check if Safe has a transaction guard enabled"""
+        guard_address = safe_data.get("guard")
+
+        if not guard_address:
+            return SecurityCheckResult(
+                title="Transaction Guard",
+                status="success",
+                message="No transaction guard enabled. Uses standard Safe transaction execution.",
+                details={"guard_address": None}
+            )
+        else:
+            return SecurityCheckResult(
+                title="Transaction Guard",
+                status="warning",
+                message=f"Transaction guard enabled at {guard_address}. Verify guard contract is secure.",
+                details={"guard_address": guard_address}
+            )
+
+    def _check_fallback_handler(self, safe_data: dict) -> SecurityCheckResult:
+        """Check if Safe has a fallback handler and if it's official"""
+        handler_address = safe_data.get("fallback_handler")
+
+        if not handler_address:
+            return SecurityCheckResult(
+                title="Fallback Handler",
+                status="success",
+                message="No fallback handler enabled. Uses standard Safe functionality only.",
+                details={"handler_address": None}
+            )
+
+        # Check if it's an official handler
+        handler_name = OFFICIAL_SAFE_FALLBACK_HANDLERS.get(handler_address.lower())
+
+        if handler_name:
+            return SecurityCheckResult(
+                title="Fallback Handler",
+                status="success",
+                message=f"Official Safe fallback handler: {handler_name}",
+                details={
+                    "handler_address": handler_address,
+                    "handler_name": handler_name,
+                    "is_official": True
+                }
+            )
+        else:
+            return SecurityCheckResult(
+                title="Fallback Handler",
+                status="warning",
+                message=f"Custom fallback handler at {handler_address}. Verify handler contract is secure.",
+                details={
+                    "handler_address": handler_address,
+                    "handler_name": "Custom/Unknown",
+                    "is_official": False
+                }
+            )
+
+    def _check_multichain_deployment(self, address: str, current_safe_data: dict) -> SecurityCheckResult:
+        """Check if Safe is deployed across multiple chains and analyze signer reuse"""
+        deployed_chains = []
+        signer_reuse = {}
+        all_chain_owners = {}
+
+        current_owners = current_safe_data.get("owners", [])
+        if current_owners:
+            all_chain_owners[self.chain_config["name"]] = current_owners
+            for owner in current_owners:
+                owner_lower = owner.lower()
+                if owner_lower not in signer_reuse:
+                    signer_reuse[owner_lower] = []
+                signer_reuse[owner_lower].append(self.chain_config["name"])
+
+        # Check other chains
+        for chain_name, chain_config in SUPPORTED_CHAINS.items():
+            if chain_name.lower() == self.chain_config["name"].lower():
+                continue  # Skip current chain
+
+            try:
+                # Create temporary analyzer for other chain
+                temp_analyzer = SafeAnalyzer(chain_name)
+
+                # Check if contract exists on this chain
+                code = temp_analyzer.rpc_call("eth_getCode", [address, "latest"])
+                if not code or code == "0x":
+                    continue
+
+                # Try to get owners to confirm it's a Safe
+                try:
+                    safe_data = temp_analyzer.get_safe_data(address)
+                    if "owners" in safe_data:
+                        deployed_chains.append(chain_config["name"])
+                        chain_owners = safe_data["owners"]
+                        all_chain_owners[chain_config["name"]] = chain_owners
+
+                        # Track signer reuse
+                        for owner in chain_owners:
+                            owner_lower = owner.lower()
+                            if owner_lower not in signer_reuse:
+                                signer_reuse[owner_lower] = []
+                            signer_reuse[owner_lower].append(chain_config["name"])
+                except Exception:
+                    # If we can get code but not Safe data, still count as deployed
+                    deployed_chains.append(chain_config["name"])
+
+            except Exception as e:
+                print(f"Error checking {chain_config['name']}: {e}")
+                continue
+
+        # Add current chain to deployed list
+        deployed_chains.insert(0, self.chain_config["name"])
+
+        # Analyze results
+        total_deployments = len(deployed_chains)
+        reused_signers = [owner for owner, chains in signer_reuse.items() if len(chains) > 1]
+
+        if total_deployments == 1:
+            return SecurityCheckResult(
+                title="Multi-Chain Signer Analysis",
+                status="success",
+                message=f"Safe is deployed only on {self.chain_config['name']}. No multi-chain deployment detected.",
+                details={
+                    "total_deployments": total_deployments,
+                    "deployed_chains": deployed_chains,
+                    "is_multichain": False
+                }
+            )
+        else:
+            # Multi-chain deployment detected
+            status = "warning" if reused_signers else "success"
+
+            if reused_signers:
+                message = f"Multi-chain deployment detected on {total_deployments} chains with {len(reused_signers)} reused signers. Signer reuse reduces security."
+            else:
+                message = f"Multi-chain deployment detected on {total_deployments} chains with unique signers on each chain."
+
+            return SecurityCheckResult(
+                title="Multi-Chain Signer Analysis",
+                status=status,
+                message=message,
+                details={
+                    "total_deployments": total_deployments,
+                    "deployed_chains": deployed_chains,
+                    "is_multichain": True,
+                    "reused_signers": len(reused_signers),
+                    "signer_reuse_details": signer_reuse,
+                    "all_chain_owners": all_chain_owners
+                }
+            )
+
     def get_contract_creation_date(self, address: str) -> Optional[datetime]:
         """Get contract creation date from explorer API"""
         try:
@@ -283,24 +493,24 @@ class SafeAnalyzer:
                 "page": "1",
                 "offset": "1"
             }
-            
+
             result = self.explorer_api_call(params)
-            
+
             if result.get("status") == "1" and result.get("result"):
                 first_tx = result["result"][0]
                 timestamp = int(first_tx["timeStamp"])
                 return datetime.fromtimestamp(timestamp)
-            
+
         except Exception as e:
             print(f"Error getting creation date: {e}")
-        
+
         return None
-    
+
     def get_last_transaction_date(self, address: str) -> Optional[datetime]:
         """Get last transaction date from explorer API"""
         try:
             params = {
-                "module": "account", 
+                "module": "account",
                 "action": "txlist",
                 "address": address,
                 "startblock": "0",
@@ -309,19 +519,19 @@ class SafeAnalyzer:
                 "page": "1",
                 "offset": "1"
             }
-            
+
             result = self.explorer_api_call(params)
-            
+
             if result.get("status") == "1" and result.get("result"):
                 last_tx = result["result"][0]
                 timestamp = int(last_tx["timeStamp"])
                 return datetime.fromtimestamp(timestamp)
-            
+
         except Exception as e:
             print(f"Error getting last transaction: {e}")
-        
+
         return None
-    
+
     def get_latest_safe_version(self) -> tuple[Optional[str], Optional[str]]:
         """Get latest Safe version from GitHub API"""
         try:
@@ -331,14 +541,14 @@ class SafeAnalyzer:
             )
             response.raise_for_status()
             releases = response.json()
-            
+
             if not releases:
                 return None, None
-            
+
             # Find latest and second latest versions
             latest_version = None
             second_latest_version = None
-            
+
             for release in releases:
                 if not release.get('prerelease') and not release.get('draft'):
                     version = release.get('tag_name', '').lstrip('v')
@@ -347,35 +557,35 @@ class SafeAnalyzer:
                     elif second_latest_version is None:
                         second_latest_version = version
                         break
-            
+
             return latest_version, second_latest_version
-            
+
         except Exception as e:
             print(f"Error fetching latest Safe version: {e}")
             return None, None
-    
+
     def compare_versions(self, current_version: str, latest_version: Optional[str], second_latest_version: Optional[str]) -> str:
         """Compare current version against latest versions"""
         if not latest_version:
             return 'unknown'
-        
+
         if current_version == latest_version:
             return 'latest'
         elif current_version == second_latest_version:
             return 'second-latest'
-        
+
         try:
             # Parse version numbers for comparison
             current_parts = [int(x) for x in current_version.split('.')]
             latest_parts = [int(x) for x in latest_version.split('.')]
-            
+
             # Simple version comparison
             if current_parts < latest_parts:
                 # Check if it's just 1-2 versions behind
                 if len(current_parts) >= 2 and len(latest_parts) >= 2:
                     major_diff = latest_parts[0] - current_parts[0]
                     minor_diff = latest_parts[1] - current_parts[1] if major_diff == 0 else latest_parts[1]
-                    
+
                     if major_diff == 0 and minor_diff <= 2:
                         return 'old'
                     else:
@@ -385,18 +595,18 @@ class SafeAnalyzer:
                 return 'future'
         except:
             return 'unknown'
-    
+
     def calculate_security_score(self, checks: List[SecurityCheckResult]) -> SecurityScore:
         """Calculate overall security score based on check results"""
         total_checks = len(checks)
         success_count = sum(1 for check in checks if check.status == 'success')
         warning_count = sum(1 for check in checks if check.status == 'warning')
         error_count = sum(1 for check in checks if check.status == 'error')
-        
+
         # Calculate score (success=10pts, warning=7pts, error=0pts)
         score = (success_count * 10 + warning_count * 7) / (total_checks * 10) * 100
         score = max(0, min(100, int(score)))
-        
+
         # Determine rating and position
         if score >= 85:
             rating = "Excellent"
@@ -418,7 +628,7 @@ class SafeAnalyzer:
             position = max(5, score * 0.6)
             color = "text-red-600"
             description = "Your Safe has significant security risks that need immediate attention."
-        
+
         return SecurityScore(
             score=score,
             rating=rating,
@@ -426,39 +636,39 @@ class SafeAnalyzer:
             color=color,
             description=description
         )
-    
+
     def perform_security_checks(self, address: str, safe_data: Dict[str, Any]) -> List[SecurityCheckResult]:
         """Perform all 14 security checks"""
         checks = []
-        
+
         # Extract data
         version = safe_data.get("version", "")
         threshold = safe_data.get("threshold", 0)
         owners = safe_data.get("owners", [])
         nonce = safe_data.get("nonce", 0)
         modules = safe_data.get("modules", [])
-        
+
         owner_count = len(owners)
         threshold_percentage = (threshold / owner_count * 100) if owner_count > 0 else 0
-        
+
         # 1. Signer Threshold
         if threshold == 1:
             status = "error"
             message = f"Single signature requirement is insecure. Only {threshold} signature is required to execute transactions."
         elif threshold <= 3:
-            status = "warning" 
+            status = "warning"
             message = f"Low signature threshold detected. {threshold} signatures are required to execute transactions."
         else:
             status = "success"
             message = f"Good signature threshold. {threshold} signatures are required to execute transactions."
-        
+
         checks.append(SecurityCheckResult(
             title="Signer Threshold",
             status=status,
             message=message,
             details={"threshold": threshold, "owners": owner_count}
         ))
-        
+
         # 2. Signer Threshold Percentage
         if threshold_percentage < 34:
             status = "error"
@@ -469,18 +679,18 @@ class SafeAnalyzer:
         else:
             status = "success"
             message = f"Strong threshold: {threshold_percentage:.1f}% of owners ({threshold}/{owner_count}) required for transactions."
-        
+
         checks.append(SecurityCheckResult(
             title="Signer Threshold Percentage",
             status=status,
             message=message,
             details={"percentage": threshold_percentage}
         ))
-        
+
         # 3. Safe Version
         latest_version, second_latest_version = self.get_latest_safe_version()
         version_status = self.compare_versions(version, latest_version, second_latest_version)
-        
+
         if version_status == 'latest':
             status = "success"
             message = f"Latest version: {version}{f' (current latest: {latest_version})' if latest_version else ''}"
@@ -499,19 +709,19 @@ class SafeAnalyzer:
         else:
             status = "warning"
             message = f"Could not determine version status for: {version}"
-        
+
         checks.append(SecurityCheckResult(
             title="Safe Version",
             status=status,
             message=message,
             details={"version": version}
         ))
-        
+
         # 4. Contract Creation Date
         creation_date = self.get_contract_creation_date(address)
         if creation_date:
             days_since_creation = (datetime.now() - creation_date).days
-            
+
             if days_since_creation <= 7:
                 status = "error"
                 message = f"Very new contract deployed {days_since_creation} days ago on {creation_date.strftime('%Y-%m-%d')}. Insufficient time to establish trust."
@@ -524,14 +734,14 @@ class SafeAnalyzer:
         else:
             status = "warning"
             message = "Could not determine contract creation date"
-        
+
         checks.append(SecurityCheckResult(
             title="Contract Creation Date",
             status=status,
             message=message,
             details={"creation_date": creation_date.isoformat() if creation_date else None}
         ))
-        
+
         # 5. Multisig Nonce
         if nonce <= 3:
             status = "error"
@@ -542,14 +752,14 @@ class SafeAnalyzer:
         else:
             status = "success"
             message = f"Active usage: {nonce} transactions executed."
-        
+
         checks.append(SecurityCheckResult(
             title="Multisig Nonce",
             status=status,
             message=message,
             details={"nonce": nonce}
         ))
-        
+
         # 6. Last Transaction Date
         # Check nonce first - if it's 0, this Safe has never executed a transaction
         if nonce == 0:
@@ -560,7 +770,7 @@ class SafeAnalyzer:
             if last_tx_date:
                 days_since_last_tx = (datetime.now() - last_tx_date).days
                 formatted_date = last_tx_date.strftime('%Y-%m-%d')
-                
+
                 if days_since_last_tx >= 90:
                     status = "error"
                     message = f"Inactive for {days_since_last_tx} days. Last transaction: {formatted_date}."
@@ -574,14 +784,14 @@ class SafeAnalyzer:
                 # API error or other issue - nonce > 0 but couldn't get transaction date
                 status = "warning"
                 message = "Could not determine last transaction date"
-        
+
         checks.append(SecurityCheckResult(
             title="Last Transaction Date",
             status=status,
             message=message,
             details={"last_transaction": last_tx_date.isoformat() if last_tx_date else None}
         ))
-        
+
         # 7. Optional Modules
         if len(modules) == 0:
             status = "success"
@@ -589,41 +799,33 @@ class SafeAnalyzer:
         else:
             status = "warning"
             message = f"{len(modules)} module(s) enabled. Review module security: {', '.join(modules[:3])}{'...' if len(modules) > 3 else ''}"
-        
+
         checks.append(SecurityCheckResult(
             title="Optional Modules",
             status=status,
             message=message,
             details={"modules": modules}
         ))
-        
+
         # 8-14: Additional checks would require more complex contract interactions
         # For now, we'll add placeholder implementations
-        
+
         # 8. Transaction Guard
-        checks.append(SecurityCheckResult(
-            title="Transaction Guard",
-            status="success",
-            message="No transaction guard enabled. Uses standard Safe transaction execution.",
-            details={}
-        ))
-        
-        # 9. Fallback Handler  
-        checks.append(SecurityCheckResult(
-            title="Fallback Handler",
-            status="success",
-            message="No fallback handler enabled. Uses standard Safe functionality only.",
-            details={}
-        ))
-        
+        guard_result = self._check_transaction_guard(safe_data)
+        checks.append(guard_result)
+
+        # 9. Fallback Handler
+        handler_result = self._check_fallback_handler(safe_data)
+        checks.append(handler_result)
+
         # 10. Chain Configuration
         checks.append(SecurityCheckResult(
-            title="Chain Configuration", 
+            title="Chain Configuration",
             status="success",
             message=f"Safe is deployed only on {self.chain_config['name']}. No multi-chain deployment detected.",
             details={"chain": self.chain}
         ))
-        
+
         # 11. Owner Activity Analysis
         checks.append(SecurityCheckResult(
             title="Owner Activity Analysis",
@@ -631,7 +833,7 @@ class SafeAnalyzer:
             message=f"All {len(owners)} owners may be used exclusively for multisig signing (analysis requires API key).",
             details={"owners": owners}
         ))
-        
+
         # 12. Emergency Recovery Mechanisms
         checks.append(SecurityCheckResult(
             title="Emergency Recovery Mechanisms",
@@ -639,7 +841,7 @@ class SafeAnalyzer:
             message="No recovery module detected. Consider implementing social recovery or guardian mechanisms for emergency access.",
             details={}
         ))
-        
+
         # 13. Contract Signers
         checks.append(SecurityCheckResult(
             title="Contract Signers",
@@ -647,21 +849,17 @@ class SafeAnalyzer:
             message="Signer analysis requires additional contract calls. Assuming all signers are EOAs.",
             details={}
         ))
-        
+
         # 14. Multi-Chain Signer Analysis
-        checks.append(SecurityCheckResult(
-            title="Multi-Chain Signer Analysis",
-            status="success", 
-            message="Not applicable - Safe is only deployed on one chain.",
-            details={}
-        ))
-        
+        multichain_result = self._check_multichain_deployment(address, safe_data)
+        checks.append(multichain_result)
+
         return checks
-    
+
     def analyze_safe(self, address: str) -> SafeAnalysisResult:
         """Perform complete Safe security analysis"""
         print(f"🔍 Analyzing Safe: {address}")
-        
+
         # Validate address format
         if not re.match(r'^0x[a-fA-F0-9]{40}$', address):
             return SafeAnalysisResult(
@@ -671,7 +869,7 @@ class SafeAnalyzer:
                 error="Invalid address format",
                 analyzed_at=datetime.now().isoformat()
             )
-        
+
         # Check if address is a contract
         if not self.is_contract(address):
             return SafeAnalysisResult(
@@ -681,10 +879,10 @@ class SafeAnalyzer:
                 error="Address is not a contract",
                 analyzed_at=datetime.now().isoformat()
             )
-        
+
         # Get Safe data
         safe_data = self.get_safe_data(address)
-        
+
         if not safe_data or "version" not in safe_data:
             return SafeAnalysisResult(
                 address=address,
@@ -693,15 +891,15 @@ class SafeAnalyzer:
                 error="Address does not appear to be a Gnosis Safe multisig",
                 analyzed_at=datetime.now().isoformat()
             )
-        
+
         print(f"✅ Confirmed Safe v{safe_data.get('version', 'unknown')}")
-        
+
         # Perform security checks
         checks = self.perform_security_checks(address, safe_data)
-        
+
         # Calculate security score
         security_score = self.calculate_security_score(checks)
-        
+
         return SafeAnalysisResult(
             address=address,
             chain=self.chain,
@@ -711,6 +909,8 @@ class SafeAnalyzer:
             owners=safe_data.get("owners"),
             nonce=safe_data.get("nonce"),
             modules=safe_data.get("modules"),
+            guard=safe_data.get("guard"),
+            fallback_handler=safe_data.get("fallback_handler"),
             security_score=security_score,
             checks=checks,
             analyzed_at=datetime.now().isoformat()
@@ -725,11 +925,11 @@ def format_human_readable(result: SafeAnalysisResult) -> str:
     output.append(f"Chain: {result.chain}")
     output.append(f"Analyzed: {result.analyzed_at}")
     output.append("")
-    
+
     if not result.is_safe:
         output.append(f"❌ Error: {result.error}")
         return "\n".join(output)
-    
+
     # Basic info
     output.append(f"📊 Safe Information")
     output.append(f"   Version: {result.version}")
@@ -737,45 +937,45 @@ def format_human_readable(result: SafeAnalysisResult) -> str:
     output.append(f"   Nonce: {result.nonce} transactions")
     output.append(f"   Modules: {len(result.modules) if result.modules else 0} enabled")
     output.append("")
-    
+
     # Security score
     if result.security_score:
         output.append(f"🎯 Overall Security Rating: {result.security_score.rating}")
         output.append(f"   Score: {result.security_score.score}/100")
         output.append(f"   {result.security_score.description}")
         output.append("")
-    
+
     # Security checks
     output.append(f"🔍 Security Check Results")
     output.append(f"{'='*50}")
-    
+
     for check in result.checks:
         icon = {"success": "✅", "warning": "⚠️", "error": "❌"}.get(check.status, "❓")
         output.append(f"{icon} {check.title}")
         output.append(f"   {check.message}")
         output.append("")
-    
+
     return "\n".join(output)
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze Gnosis Safe multisig security")
     parser.add_argument("--address", type=str, help="Safe address to analyze")
     parser.add_argument("--batch", type=str, help="File with addresses to analyze (one per line)")
-    parser.add_argument("--chain", choices=list(SUPPORTED_CHAINS.keys()), 
+    parser.add_argument("--chain", choices=list(SUPPORTED_CHAINS.keys()),
                        default="ethereum", help="Blockchain network")
-    parser.add_argument("--output", choices=["human", "json", "csv"], 
+    parser.add_argument("--output", choices=["human", "json", "csv"],
                        default="human", help="Output format")
     parser.add_argument("--api-key", type=str, help="Explorer API key for enhanced data")
     parser.add_argument("--file", type=str, help="Output file path")
-    
+
     args = parser.parse_args()
-    
+
     if not args.address and not args.batch:
         parser.error("Must specify either --address or --batch")
-    
+
     # Create analyzer
     analyzer = SafeAnalyzer(args.chain, args.api_key)
-    
+
     # Collect addresses to analyze
     addresses = []
     if args.address:
@@ -788,22 +988,22 @@ def main():
         except FileNotFoundError:
             print(f"❌ Batch file not found: {args.batch}")
             sys.exit(1)
-    
+
     # Analyze addresses
     results = []
     for i, address in enumerate(addresses, 1):
         if len(addresses) > 1:
             print(f"\n📍 Analyzing {i}/{len(addresses)}: {address}")
-        
+
         try:
             result = analyzer.analyze_safe(address)
             results.append(result)
-            
+
             if args.output == "human" and not args.file:
                 print(format_human_readable(result))
                 if i < len(addresses):
                     print("\n" + "="*80 + "\n")
-            
+
         except Exception as e:
             print(f"❌ Error analyzing {address}: {e}")
             results.append(SafeAnalysisResult(
@@ -813,7 +1013,7 @@ def main():
                 error=str(e),
                 analyzed_at=datetime.now().isoformat()
             ))
-    
+
     # Output results to file if specified
     if args.file:
         try:
@@ -821,13 +1021,13 @@ def main():
                 with open(args.file, 'w') as f:
                     json.dump([asdict(result) for result in results], f, indent=2, default=str)
                 print(f"💾 Results saved to {args.file}")
-                
+
             elif args.output == "csv":
                 with open(args.file, 'w', newline='') as f:
                     writer = csv.writer(f)
                     # Header
                     writer.writerow([
-                        "address", "chain", "is_safe", "version", "threshold", "owner_count", 
+                        "address", "chain", "is_safe", "version", "threshold", "owner_count",
                         "nonce", "module_count", "security_score", "security_rating", "error"
                     ])
                     # Data
@@ -841,7 +1041,7 @@ def main():
                             result.error
                         ])
                 print(f"💾 Results saved to {args.file}")
-                
+
             elif args.output == "human":
                 with open(args.file, 'w') as f:
                     for i, result in enumerate(results):
@@ -849,10 +1049,10 @@ def main():
                         if i < len(results) - 1:
                             f.write("\n" + "="*80 + "\n\n")
                 print(f"💾 Results saved to {args.file}")
-                
+
         except Exception as e:
             print(f"❌ Error saving to file: {e}")
-    
+
     # Summary
     if len(results) > 1:
         safe_count = sum(1 for r in results if r.is_safe)
