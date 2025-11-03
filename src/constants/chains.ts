@@ -158,7 +158,9 @@ export const CHAIN_EXAMPLES: Record<number, ExampleMultisig[]> = {
 
   // Katana (747474)
   747474: [
-    { address: '0xe6ad5A88f5da0F276C903d9Ac2647A937c917162', name: 'Yearn multisig' },
-    { address: '0xBe7c7efc1ef3245d37E3157F76A512108D6D7aE6', name: 'Yearn multisig' }
+    { address: '0xe6ad5A88f5da0F276C903d9Ac2647A937c917162', name: 'Yearn kchad Multisig' },
+    { address: '0xBe7c7efc1ef3245d37E3157F76A512108D6D7aE6', name: 'Yearn Strategist Multisig' },
+    { address: '0xb5c5b5D7a64d43bb91Dab63Ff3095F7FcB869b4e', name: 'Morpho Gauntlet Curator' },
+    { address: '0x18b8828ca63F03CE4765f56Db7652F88cDE45d7c', name: 'Morpho Registry Owner' }
   ]
 };
