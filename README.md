@@ -1,36 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Multisig Security Checker
+
+Security analyzer for Safe (formerly Gnosis Safe) multisig wallets. Paste a Safe address, choose a network, and get an opinionated security review that highlights risky configurations. Further information about the analysis is available in this post: https://blog.electisec.com/multisig-security.
+
+![Multisig security web app](screenshot.png)
+
+## Key Capabilities
+
+- **Deep Safe introspection** – batch RPC calls retrieve the Safe version, owner set, signing threshold, nonce, enabled modules, guard, and fallback handler.
+- **Security heuristics** – fourteen checks score each Safe on threshold quality, owner activity, EOA vs contract signers, optional modules, fallback handler provenance, emergency recovery settings, and more.
+- **Cross-chain awareness** – detects deployments across Ethereum, Base, Arbitrum, Optimism, Polygon, and Katana, then warns when signers are reused between chains (replay-attack risk).
+- **Fresh data sources** – combines viem RPC calls, Safe Protocol Kit helpers, GitHub release metadata, and Etherscan-style explorer APIs with rate limiting and RPC fallbacks.
+- **Human-friendly UX** – color-coded score bar, hover tooltips that explain every check, and curated example Safes for each chain so you can demo the tool instantly.
+
+## Stack
+
+- [Next.js 15](https://nextjs.org/) App Router with React 19 and TypeScript
+- [viem](https://viem.sh/) for RPC reads and multicall batching
+- [@safe-global/protocol-kit](https://github.com/safe-global/safe-core-sdk) for Safe-specific helpers
+- Tailwind-style utility classes for styling (see `src/app/globals.css`)
 
 ## Getting Started
 
-First, run the development server:
+1. **Prerequisites**
+   - Node.js 20+
+   - `pnpm` (preferred) or `npm`/`yarn`
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+2. **Install dependencies**
+   ```bash
+   pnpm install
+   ```
+   > Use `npm install` or `yarn install` if you prefer those package managers.
+
+3. **Environment variables**
+   Create `.env.local` and set an explorer API key (shared across Etherscan-family explorers):
+   ```bash
+   NEXT_PUBLIC_ETHERSCAN_API_KEY=YourApiKeyToken
+   ```
+   The app falls back to `YourApiKeyToken`, but supplying a real key avoids tight rate limits when fetching historical tx data.
+
+4. **Run the dev server**
+   ```bash
+   pnpm dev
+   ```
+   Visit `http://localhost:3000`, choose a chain, and load a Safe address (or pick one from the example list).
+
+5. **Production build**
+   ```bash
+   pnpm build
+   pnpm start
+   ```
+
+## API Usage
+
+All functionality is exposed through the built-in API route:
+
+```
+GET /api/[chainId]/[address]
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- `chainId`: numeric ID from `SUPPORTED_CHAINS` (1, 8453, 42161, 10, 137, 747474).
+- `address`: Safe contract address (checksum format preferred).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Response payload:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `safeInfo`: version, threshold, owners, nonce, modules, guard, fallback handler.
+- `securityScore`: aggregate score (0–100) plus qualitative rating.
+- `checks`: array of the fourteen security checks, each with `status` (`success`, `warning`, `error`) and a descriptive message.
 
-## Learn More
+This makes it easy to plug the analyzer into monitoring scripts or dashboards without scraping the UI.
 
-To learn more about Next.js, take a look at the following resources:
+## Feedback
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+For feature requests or bug reports, DM `@engn33r` on X or open an issue/PR in this repo.
